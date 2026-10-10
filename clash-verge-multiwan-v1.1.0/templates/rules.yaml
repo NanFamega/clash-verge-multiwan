@@ -1,0 +1,138 @@
+# Profile Enhancement Rules Template for Clash Verge
+# 用途: 决定"哪些流量走多线聚合"。命中顺序 = 从上到下。
+# 设计原则: 只把"原本就是 DIRECT"的大流量目标交给多线聚合, 保证行为不变(只是出口从一条变多条);
+#           内网/校园网/IP 敏感服务一律保护为 DIRECT; 最后用 GEOIP,CN 兜住裸 IP 的 CDN 下载。
+prepend:
+
+  # ================= ⓪ 健康检查放行 (必须在 GEOIP,CN 之前!) =================
+  # 多线组的健康检查 URL 是 connect.rom.miui.com。若不放行, 它可能被下面的
+  # GEOIP,CN 送回"正在被检测的那个组"形成环路, 导致成员全部 alive=false、轮询失效。
+  - DOMAIN-SUFFIX,rom.miui.com,DIRECT
+
+  # ================= ① 指定大流量目标 -> 多线聚合 (最优先) =================
+  # ---- 国内镜像站 ----
+  - DOMAIN-SUFFIX,mirrors.tuna.tsinghua.edu.cn,多线聚合
+  - DOMAIN-SUFFIX,mirrors.aliyun.com,多线聚合
+  - DOMAIN-SUFFIX,mirrors.ustc.edu.cn,多线聚合
+  - DOMAIN-SUFFIX,mirror.nju.edu.cn,多线聚合
+  - DOMAIN-SUFFIX,mirrors.nju.edu.cn,多线聚合
+  - DOMAIN-SUFFIX,mirrors.huaweicloud.com,多线聚合
+  - DOMAIN-SUFFIX,mirrors.cloud.tencent.com,多线聚合
+  - DOMAIN-SUFFIX,mirrors.163.com,多线聚合
+  - DOMAIN-SUFFIX,mirrors.sjtu.edu.cn,多线聚合
+  - DOMAIN-SUFFIX,mirrors.zju.edu.cn,多线聚合
+  - DOMAIN-SUFFIX,mirrors.pku.edu.cn,多线聚合
+  - DOMAIN-SUFFIX,mirrors.cernet.edu.cn,多线聚合
+  - DOMAIN-SUFFIX,mirror.iscas.ac.cn,多线聚合
+  - DOMAIN-SUFFIX,mirrors.bfsu.edu.cn,多线聚合
+  - DOMAIN-SUFFIX,mirrors.hust.edu.cn,多线聚合
+  # ---- 网盘 / 下载工具 ----
+  # 注意: 网盘可能把下载票据与出口 IP 绑定; 出 403/中断就把对应行注释掉,
+  #       或把组的 strategy 改成 consistent-hashing
+  - DOMAIN-KEYWORD,baidu,多线聚合
+  - DOMAIN-SUFFIX,xunlei.com,多线聚合
+  - DOMAIN-SUFFIX,alipan.com,多线聚合
+  - DOMAIN-SUFFIX,aliyundrive.com,多线聚合
+  - DOMAIN-SUFFIX,pan.quark.cn,多线聚合
+  - DOMAIN-SUFFIX,123pan.com,多线聚合
+  - DOMAIN-SUFFIX,cloud.189.cn,多线聚合
+  # ---- 游戏平台下载 (WeGame / 腾讯游戏) ----
+  # 进程名规则在 Windows+TUN 下有竞态可能不命中, 真正兜底的是 ④ 的 GEOIP,CN
+  - PROCESS-NAME,TinyDL64,多线聚合
+  - PROCESS-NAME,wegame,多线聚合
+  - PROCESS-NAME,wegame_env,多线聚合
+  - DOMAIN-KEYWORD,dlied,多线聚合
+  - DOMAIN-SUFFIX,wegame.com.cn,多线聚合
+  - DOMAIN-SUFFIX,tgp.qq.com,多线聚合
+  - DOMAIN-SUFFIX,gtimg.com,多线聚合
+  - DOMAIN-SUFFIX,myqcloud.com,多线聚合
+  # ---- Steam: 只放行"内容下载"域名 -> 本地直连; 商店/社区/聊天 仍走代理 ----
+  # 原因: 走代理时 Steam 会把你当成国外用户, 分配香港/新加坡 CDN, 再经节点绕回来
+  #       -> 实测只有 3~4 MB/s。放行后 Steam 看到真实中国 IP, 会重新分配国内 CDN。
+  - DOMAIN-SUFFIX,steamserver.net,多线聚合
+  - DOMAIN-SUFFIX,steamcontent.com,多线聚合
+  - DOMAIN-SUFFIX,steamstatic.com,多线聚合
+
+  # ================= ② 内网 / 校园网保护 -> DIRECT =================
+  # 校内服务若偶发连不上, 把它的域名/IP 段加到这里
+  - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
+  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
+  - IP-CIDR,100.64.0.0/10,DIRECT,no-resolve
+  - IP-CIDR,169.254.0.0/16,DIRECT,no-resolve
+  - IP-CIDR,224.0.0.0/4,DIRECT,no-resolve
+  - IP-CIDR,114.213.0.0/16,DIRECT,no-resolve    # 换成你自己校园网的公网段
+  - DOMAIN-SUFFIX,edu.cn,DIRECT
+  - DOMAIN-SUFFIX,edu,DIRECT
+
+  # ================= ③ IP 敏感服务保护 -> DIRECT =================
+  # 多出口轮询会让同一应用的不同连接来自不同公网 IP, 登录/支付/聊天类可能触发风控。
+  # 若某站点出现验证码/掉登录, 把域名加到这一段。
+  - DOMAIN-SUFFIX,qq.com,DIRECT
+  - DOMAIN-SUFFIX,weixin.com,DIRECT
+  - DOMAIN-SUFFIX,wechat.com,DIRECT
+  - DOMAIN-SUFFIX,tenpay.com,DIRECT
+  - DOMAIN-SUFFIX,alipay.com,DIRECT
+  - DOMAIN-SUFFIX,alipayobjects.com,DIRECT
+  - DOMAIN-SUFFIX,unionpay.com,DIRECT
+  - DOMAIN-SUFFIX,unionpayintl.com,DIRECT
+
+  # ================= ④ 其余国内流量 -> 多线聚合 =================
+  # 关键: 裸 IP 的 CDN 下载(如 WeGame 的 39.134.x.x)没有域名, 靠这条兜住。
+  # 若担心覆盖面太大, 可注释掉这一行, 只用上面的显式清单。
+  - GEOIP,CN,多线聚合
+
+  # ================= ⑤ 游戏平台 / 系统更新的"内容下载 CDN" -> 多线聚合 =================
+  # 为什么: 这些平台**未被墙**, 没必要挤在机场节点上(实测机场吞吐只有 0.5~4 MB/s,
+  #         而本地三条腿可以叠加)。放行后走本地直连, 既快又不消耗机场流量。
+  # 边界: 只放行"内容下载 CDN", **不含登录/商店域名** —— 登录仍走代理,
+  #       避免出口 IP 轮换触发风控。若某平台实测直连反而更慢, 注释掉对应行即可。
+  # ---- 微软 / Edge / Windows Update / VS Code ----
+  - DOMAIN-SUFFIX,delivery.mp.microsoft.com,多线聚合
+  - DOMAIN-SUFFIX,dl.delivery.mp.microsoft.com,多线聚合
+  - DOMAIN-SUFFIX,download.microsoft.com,多线聚合
+  - DOMAIN-SUFFIX,update.microsoft.com,多线聚合
+  - DOMAIN-SUFFIX,windowsupdate.com,多线聚合
+  - DOMAIN-SUFFIX,prss.microsoft.com,多线聚合
+  - DOMAIN-SUFFIX,download.visualstudio.microsoft.com,多线聚合
+  - DOMAIN-SUFFIX,msedge.net,多线聚合
+  # ---- 显卡驱动 ----
+  - DOMAIN-SUFFIX,download.nvidia.com,多线聚合
+  - DOMAIN-SUFFIX,international.download.nvidia.com,多线聚合
+  - DOMAIN-SUFFIX,us.download.nvidia.com,多线聚合
+  - DOMAIN-SUFFIX,drivers.amd.com,多线聚合
+  # ---- Epic / 虚幻引擎 ----
+  - DOMAIN-SUFFIX,epicgamescdn.com,多线聚合
+  - DOMAIN-SUFFIX,download.epicgames.com,多线聚合
+  - DOMAIN-SUFFIX,epicgames-download1.akamaized.net,多线聚合
+  - DOMAIN-SUFFIX,unrealengine.com,多线聚合
+  # ---- Ubisoft / EA / Battle.net / GOG / Xbox 的下载 CDN ----
+  - DOMAIN-SUFFIX,ubisoft-origin.com,多线聚合
+  - DOMAIN-SUFFIX,eaassets-a.akamaihd.net,多线聚合
+  - DOMAIN-SUFFIX,origin-a.akamaihd.net,多线聚合
+  - DOMAIN-SUFFIX,blzddist1-a.akamaihd.net,多线聚合
+  - DOMAIN-SUFFIX,blzddist2-a.akamaihd.net,多线聚合
+  - DOMAIN-SUFFIX,level3.blizzard.com,多线聚合
+  - DOMAIN-SUFFIX,gog-statics.com,多线聚合
+  - DOMAIN-SUFFIX,cdn.gog.com,多线聚合
+  - DOMAIN-SUFFIX,assets.xboxservices.com,多线聚合
+  # ---- 注意: Google 系(dl.google.com / gvt1.com / gstatic.com)不要放行 ----
+  # 它们被墙, 必须走代理。实测: 经节点 4.2 MB/s, 直连 2.6 MB/s —— 代理更快。
+  # ---- GitHub: 只放行"下载"端点, 主页/raw 保持走代理 ----
+  # 实测: 源码包(codeload) 直连 0.88 MB/s > 经节点 0.67 MB/s。
+  # 但 raw.githubusercontent.com 被 DNS 污染, github.com 主页也需要代理才能稳定打开, 故都不放行。
+  - DOMAIN-SUFFIX,codeload.github.com,多线聚合
+  - DOMAIN-SUFFIX,objects.githubusercontent.com,多线聚合
+  - DOMAIN-SUFFIX,github-releases.githubusercontent.com,多线聚合
+
+  # ================= ⑥ 备选, 默认关闭 =================
+  # - DOMAIN-SUFFIX,steamcommunity.com,多线聚合
+  # - DOMAIN-SUFFIX,bilibili.com,DIRECT
+  # - DOMAIN-SUFFIX,bilivideo.com,DIRECT
+  # - DOMAIN-SUFFIX,microsoft.com,DIRECT
+  # - DOMAIN-KEYWORD,alicdn,DIRECT
+
+append: []
+
+delete: []
