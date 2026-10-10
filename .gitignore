@@ -1,0 +1,17 @@
+# 本地备份 / 临时产物
+*.bak
+*.bak-*
+*.zip
+*.log
+
+# Windows
+Thumbs.db
+desktop.ini
+desktop.ini
+*.tmp
+
+# 不要把用户真实的订阅/节点信息提交上来
+config.yaml
+clash-verge.yaml
+profiles.yaml
+profiles/
