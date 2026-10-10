@@ -330,3 +330,37 @@ $bodyText = [System.Text.Encoding]::UTF8.GetString($all, $bp, $bodyLen)   # 非 
 `Invoke-MihomoApi` 现在会返回 `Error` 字段，`diagnose-nodes.ps1` 会把"解析异常"单独标红，
 不再让它伪装成"节点已死"。
 
+---
+
+## 24. 命令行工具（git / npm / pip / docker）不走系统代理 —— 表现为"连不上"，不是"认证失败"
+
+**症状**：
+```
+fatal: unable to access 'https://github.com/<user>/<repo>.git/':
+Failed to connect to github.com:443 after 21097 ms: Could not connect to server
+```
+看起来像认证问题，**其实连接根本没建立**（连认证环节都没走到）。
+
+**根因**：
+- **git 不读 Windows 的系统代理设置**（`Internet Settings\ProxyServer` 对它无效），
+  它只认 `http_proxy` / `https_proxy` 环境变量（libcurl 的行为）。
+- 若此时 TUN 模式恰好关闭，git 就是**直连 github.com:443** → 在国内超时。
+- 典型误判现场：浏览器能打开 GitHub、系统代理开着，但 git 死活不行。
+
+**排查（先分清"连不上"还是"没认证"）**：
+```powershell
+curl.exe -s -o NUL -w '%{http_code}' https://github.com/                    # 直连, 会 000 超时
+curl.exe -x http://127.0.0.1:7897 -s -o NUL -w '%{http_code}' https://github.com/  # 经内核, 应 200
+git ls-remote origin        # 公开仓库读取不需要认证; 成功就说明连接没问题
+```
+
+**处置**（只影响 git，不改系统设置）：
+```powershell
+git config --global http.proxy  http://127.0.0.1:7897
+git config --global https.proxy http://127.0.0.1:7897
+```
+同源问题：`npm`（`npm config set proxy`）、`pip`（`--proxy` 或配置文件）、
+`docker`（`~/.docker/config.json` 的 proxies）。
+**开 TUN 模式可以一次性覆盖所有程序** —— 这是 TUN 最实际的价值之一。
+
+
